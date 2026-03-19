@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useActuator } from '@/context/ActuatorContext';
+import { useGemini } from '@/context/GeminiContext';
 import { THRESHOLDS, HEALTHY_DEFAULTS, CONTEXT_DEFAULTS, SensorData, ContextData } from '@/lib/brain';
 import { X } from 'lucide-react';
 
@@ -51,6 +52,7 @@ function SliderRow({ label, value, min, max, step, unit, threshold, onChange }: 
 
 export default function SimulatorOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { sensors: currentSensors, context: currentContext, updateValues } = useActuator();
+  const { apiKey, isConfigured } = useGemini();
   const [sensors, setSensors] = useState<SensorData>(currentSensors);
   const [context, setContext] = useState<ContextData>(currentContext);
 
@@ -64,7 +66,7 @@ export default function SimulatorOverlay({ open, onClose }: { open: boolean; onC
   }
 
   function apply() {
-    updateValues(sensors, context);
+    updateValues(sensors, context, isConfigured ? apiKey : undefined);
     onClose();
   }
 

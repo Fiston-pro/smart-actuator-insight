@@ -2,6 +2,8 @@ import { useActuator } from '@/context/ActuatorContext';
 import { THRESHOLDS } from '@/lib/brain';
 import { CheckCircle, AlertTriangle, ChevronDown } from 'lucide-react';
 import { useState } from 'react';
+import PipelineTracker from '@/components/PipelineTracker';
+import PipelineLog from '@/components/PipelineLog';
 
 function MetricTile({ label, value, unit, threshold, maxDisplay }: {
   label: string; value: number; unit: string; threshold: number; maxDisplay: number;
@@ -28,7 +30,7 @@ function MetricTile({ label, value, unit, threshold, maxDisplay }: {
 }
 
 export default function Dashboard({ onOpenSimulator }: { onOpenSimulator: () => void }) {
-  const { sensors, flags, context } = useActuator();
+  const { sensors, flags, context, pipelineStage, anomalyScore, brain2ContextNote, pipelineLog } = useActuator();
   const [contextOpen, setContextOpen] = useState(false);
   const hasAnomaly = flags.length > 0;
   const posGap = Math.abs(sensors.setpointPosition - sensors.feedbackPosition);
@@ -55,6 +57,16 @@ export default function Dashboard({ onOpenSimulator }: { onOpenSimulator: () => 
           </div>
         </div>
       </div>
+
+      {/* Pipeline Status Tracker */}
+      <PipelineTracker
+        stage={pipelineStage}
+        anomalyScore={anomalyScore}
+        brain2ContextNote={brain2ContextNote}
+      />
+
+      {/* Pipeline Log */}
+      <PipelineLog entries={pipelineLog} />
 
       {/* Live Readings */}
       <div>

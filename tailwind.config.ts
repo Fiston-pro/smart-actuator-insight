@@ -92,6 +92,11 @@ export default {
           "0%, 80%, 100%": { transform: "scale(0.6)", opacity: "0.4" },
           "40%": { transform: "scale(1)", opacity: "1" },
         },
+        "pipeline-flow": {
+          "0%": { transform: "translateX(-100%)", opacity: "0" },
+          "50%": { opacity: "1" },
+          "100%": { transform: "translateX(100%)", opacity: "0" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
