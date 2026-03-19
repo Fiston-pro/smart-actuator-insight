@@ -1,5 +1,6 @@
 import { useActuator } from '@/context/ActuatorContext';
-import { Bot, CheckCircle, XCircle, AlertTriangle, Clock, Zap, Shield } from 'lucide-react';
+import { useGemini } from '@/context/GeminiContext';
+import { Bot, CheckCircle, XCircle, AlertTriangle, Clock, Zap, Shield, Brain, Info } from 'lucide-react';
 
 function ThinkingAnimation() {
   return (
@@ -16,8 +17,6 @@ function ThinkingAnimation() {
     </div>
   );
 }
-
-import { Brain } from 'lucide-react';
 
 function UrgencyBadge({ urgency, label }: { urgency: string; label: string }) {
   if (urgency === 'none' || !label) return null;
@@ -36,12 +35,29 @@ function UrgencyBadge({ urgency, label }: { urgency: string; label: string }) {
 }
 
 export default function AIAnalysis({ onNavigateVision }: { onNavigateVision: () => void }) {
-  const { flags, brain2Result, isAnalyzing, hasAnalyzed } = useActuator();
+  const { flags, brain2Result, isAnalyzing, hasAnalyzed, usingRealAI } = useActuator();
+  const { isConfigured } = useGemini();
   const noFlags = flags.length === 0 && !hasAnalyzed;
 
   return (
     <div className="px-4 pt-4 pb-24 space-y-4 max-w-lg mx-auto animate-fade-in">
       <h1 className="text-lg font-semibold">AI Analysis</h1>
+
+      {/* Banner when no API key */}
+      {!isConfigured && (
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-info/10 border border-info/20">
+          <Info className="w-4 h-4 text-info shrink-0 mt-0.5" />
+          <p className="text-xs text-info">Using simulated AI responses. Add your Gemini API key in Settings for real analysis.</p>
+        </div>
+      )}
+
+      {/* Real AI indicator */}
+      {usingRealAI && hasAnalyzed && (
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-healthy/10 border border-healthy/20 w-fit">
+          <span className="w-1.5 h-1.5 rounded-full bg-healthy" />
+          <span className="text-[10px] text-healthy font-medium">Powered by Gemini</span>
+        </div>
+      )}
 
       {noFlags && (
         <div className="card-surface p-8 flex flex-col items-center gap-4 text-center">

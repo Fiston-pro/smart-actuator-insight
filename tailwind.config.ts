@@ -92,6 +92,11 @@ export default {
           "0%, 80%, 100%": { transform: "scale(0.6)", opacity: "0.4" },
           "40%": { transform: "scale(1)", opacity: "1" },
         },
+        "pipeline-flow": {
+          "0%": { transform: "translateX(-100%)", opacity: "0" },
+          "50%": { opacity: "1" },
+          "100%": { transform: "translateX(100%)", opacity: "0" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -101,6 +106,7 @@ export default {
         "thinking-dot-1": "thinking-dot 1.4s ease-in-out infinite",
         "thinking-dot-2": "thinking-dot 1.4s ease-in-out 0.2s infinite",
         "thinking-dot-3": "thinking-dot 1.4s ease-in-out 0.4s infinite",
+        "pipeline-flow": "pipeline-flow 1.2s ease-in-out infinite",
       },
     },
   },
