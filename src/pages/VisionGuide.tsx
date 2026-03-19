@@ -33,6 +33,14 @@ export default function VisionGuide() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Attach stream to video element after it appears in the DOM
+  useEffect(() => {
+    if (cameraActive && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(() => {});
+    }
+  }, [cameraActive]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -75,15 +83,7 @@ export default function VisionGuide() {
       }
 
       streamRef.current = stream;
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play().catch(() => {});
-        };
-      }
-
-      setCameraActive(true);
+      setCameraActive(true); // triggers re-render → new <video> in DOM → useEffect attaches stream
 
       // Auto-analyze first frame after a short delay for video to render
       if (isConfigured) {
