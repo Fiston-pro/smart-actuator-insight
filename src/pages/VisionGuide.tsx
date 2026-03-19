@@ -1,258 +1,358 @@
 import { useActuator } from '@/context/ActuatorContext';
 import { useGemini } from '@/context/GeminiContext';
 import { callGeminiVision, callGeminiVisionText } from '@/lib/gemini';
-import { Camera, Smartphone, MessageSquare, Send, Info, Loader2 } from 'lucide-react';
-import { useState, useRef, useEffect } from 'react';
+import { Camera, MessageSquare, Send, Info, Loader2, Radio, CameraOff, Zap } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 
 interface ChatMessage {
   text: string;
   sender: 'ai' | 'user';
-  buttons?: { label: string; action: string }[];
+  hasFrame?: boolean;
 }
-
-const GUIDE_STEPS: ChatMessage[] = [
-  { text: "I can see the actuator. Based on the diagnostics, here's what we need to do:", sender: 'ai' },
-  { text: "Step 1: Locate the manual override — it's the small lever on top of the housing.", sender: 'ai' },
-  { text: "Step 2: Pull the override lever toward you to switch to manual mode.", sender: 'ai' },
-  {
-    text: "Step 3: Slowly rotate through full range. Notice any resistance?",
-    sender: 'ai',
-    buttons: [
-      { label: "Yes, I feel resistance", action: "resistance" },
-      { label: "No, moves freely", action: "free" },
-    ],
-  },
-];
-
-const RESISTANCE_MSG: ChatMessage = {
-  text: "That confirms the obstruction. Step 4: Remove the 4 mounting screws to access the valve body. I'll guide you through cleaning.",
-  sender: 'ai',
-};
-
-const FREE_MSG: ChatMessage = {
-  text: "Good news — the actuator moves freely now. The automated sweep may have cleared it. Let's verify by running a check.",
-  sender: 'ai',
-  buttons: [{ label: "Run Verification", action: "verify" }],
-};
 
 export default function VisionGuide() {
   const { brain2Result } = useActuator();
   const { apiKey, isConfigured } = useGemini();
+
   const [cameraActive, setCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [visibleCount, setVisibleCount] = useState(0);
   const [textInput, setTextInput] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [liveMode, setLiveMode] = useState(false);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const hasIssue = brain2Result?.isRealIssue && brain2Result.needsPhysicalInspection;
+  const streamRef = useRef<MediaStream | null>(null);
+  const liveIntervalRef = useRef<number | null>(null);
+
+  const hasIssue = !!brain2Result;
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [visibleCount, messages]);
+  }, [messages]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopCamera();
+    };
+  }, []);
 
   function captureFrame(): string | null {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas) return null;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    if (!video || !canvas || video.readyState < 2) return null;
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
     ctx.drawImage(video, 0, 0);
-    return canvas.toDataURL('image/jpeg', 0.8).split(',')[1]; // base64 only
+    return canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+  }
+
+  function stopCamera() {
+    if (liveIntervalRef.current) {
+      clearInterval(liveIntervalRef.current);
+      liveIntervalRef.current = null;
+    }
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
   }
 
   async function startCamera() {
+    setCameraError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      // Try rear camera first, fall back to any camera
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+        });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      }
+
+      streamRef.current = stream;
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play().catch(() => {});
+        };
       }
+
       setCameraActive(true);
 
-      if (!isConfigured) {
-        // Use mock messages
-        setMessages(GUIDE_STEPS);
-        setVisibleCount(0);
-        for (let i = 0; i < GUIDE_STEPS.length; i++) {
-          await new Promise(r => setTimeout(r, 1500));
-          setVisibleCount(prev => prev + 1);
-        }
+      // Auto-analyze first frame after a short delay for video to render
+      if (isConfigured) {
+        setTimeout(async () => {
+          const frame = captureFrame();
+          if (!frame) return;
+          setIsSending(true);
+          try {
+            const resp = await callGeminiVision(
+              apiKey, frame,
+              brain2Result?.issueSummary || 'General inspection',
+              []
+            );
+            setMessages([{ text: resp, sender: 'ai', hasFrame: true }]);
+          } catch {
+            setMessages([{ text: 'Camera ready. Ask me anything about what you see.', sender: 'ai' }]);
+          }
+          setIsSending(false);
+        }, 1200);
       } else {
-        // Real AI — send initial frame
-        setMessages([{ text: 'Camera started. Tap "Send to AI" to analyze what the camera sees.', sender: 'ai' }]);
-        setVisibleCount(1);
+        setMessages([{ text: "Camera is live. I can guide you through the inspection — add your Gemini API key in Settings to enable real AI analysis.", sender: 'ai' }]);
       }
-    } catch {
-      // Camera denied
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      if (msg.includes('Permission') || msg.includes('permission') || msg.includes('denied')) {
+        setCameraError('Camera permission denied. Please allow camera access in your browser settings.');
+      } else if (msg.includes('NotFound') || msg.includes('not found')) {
+        setCameraError('No camera found on this device.');
+      } else {
+        setCameraError(`Camera error: ${msg}`);
+      }
     }
   }
 
-  function handleResponse(action: string) {
-    if (action === 'resistance') {
-      setMessages(prev => [...prev, RESISTANCE_MSG]);
-      setVisibleCount(prev => prev + 1);
-    } else if (action === 'free' || action === 'verify') {
-      setMessages(prev => [...prev, FREE_MSG]);
-      setVisibleCount(prev => prev + 1);
-    }
+  function handleStopCamera() {
+    stopCamera();
+    setCameraActive(false);
+    setLiveMode(false);
+    setMessages([]);
   }
 
-  async function sendToAI() {
-    if (!isConfigured || isSending) return;
+  const runLiveAnalysis = useCallback(async () => {
+    if (isSending || !isConfigured) return;
     const frame = captureFrame();
     if (!frame) return;
-
     setIsSending(true);
     try {
-      const previousTexts = messages.filter(m => m.sender === 'ai').map(m => m.text);
-      const response = await callGeminiVision(apiKey, frame, brain2Result?.issueSummary || 'Unknown issue', previousTexts);
-      setMessages(prev => [...prev, { text: response, sender: 'ai' }]);
-      setVisibleCount(prev => prev + 1);
+      const previousTexts = messages.slice(-3).filter(m => m.sender === 'ai').map(m => m.text);
+      const resp = await callGeminiVision(
+        apiKey, frame,
+        brain2Result?.issueSummary || 'General inspection',
+        previousTexts
+      );
+      setMessages(prev => [...prev, { text: resp, sender: 'ai', hasFrame: true }]);
     } catch {
-      setMessages(prev => [...prev, { text: 'Failed to analyze image. Please try again.', sender: 'ai' }]);
-      setVisibleCount(prev => prev + 1);
+      // silent in live mode
     }
     setIsSending(false);
-  }
+  }, [apiKey, brain2Result, isConfigured, isSending, messages]);
+
+  // Toggle live mode
+  useEffect(() => {
+    if (liveMode && cameraActive && isConfigured) {
+      liveIntervalRef.current = window.setInterval(runLiveAnalysis, 8000);
+    } else {
+      if (liveIntervalRef.current) {
+        clearInterval(liveIntervalRef.current);
+        liveIntervalRef.current = null;
+      }
+    }
+    return () => {
+      if (liveIntervalRef.current) {
+        clearInterval(liveIntervalRef.current);
+        liveIntervalRef.current = null;
+      }
+    };
+  }, [liveMode, cameraActive, isConfigured, runLiveAnalysis]);
 
   async function sendTextQuestion() {
-    if (!isConfigured || !textInput.trim() || isSending) return;
+    if (!textInput.trim() || isSending) return;
     const question = textInput.trim();
     setTextInput('');
     setMessages(prev => [...prev, { text: question, sender: 'user' }]);
-    setVisibleCount(prev => prev + 1);
-
     setIsSending(true);
     try {
       const frame = captureFrame();
-      if (frame) {
-        const response = await callGeminiVisionText(apiKey, frame, question, brain2Result?.issueSummary || 'Unknown issue');
-        setMessages(prev => [...prev, { text: response, sender: 'ai' }]);
-        setVisibleCount(prev => prev + 1);
+      let response: string;
+      if (frame && isConfigured) {
+        response = await callGeminiVisionText(apiKey, frame, question, brain2Result?.issueSummary || 'General inspection');
+      } else if (!isConfigured) {
+        response = 'Add your Gemini API key in Settings to enable real AI responses.';
+      } else {
+        response = 'Could not capture frame. Make sure the camera is active.';
       }
-    } catch {
-      setMessages(prev => [...prev, { text: 'Failed to get response.', sender: 'ai' }]);
-      setVisibleCount(prev => prev + 1);
+      setMessages(prev => [...prev, { text: response, sender: 'ai', hasFrame: !!frame }]);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to get response.';
+      setMessages(prev => [...prev, { text: msg, sender: 'ai' }]);
     }
     setIsSending(false);
   }
 
   return (
-    <div className="px-4 pt-4 pb-24 space-y-4 max-w-lg mx-auto animate-fade-in">
-      <div className="flex items-center gap-2">
-        <Smartphone className="w-5 h-5 text-primary" />
-        <h1 className="text-lg font-semibold">AI-Guided Repair</h1>
+    <div className="flex flex-col h-[calc(100vh-112px)] max-w-2xl mx-auto px-4 pt-4 animate-fade-in">
+
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3 shrink-0">
+        <div className="flex items-center gap-2">
+          <Camera className="w-5 h-5 text-primary" />
+          <h1 className="text-lg font-semibold">AI Vision Guide</h1>
+        </div>
+        {cameraActive && isConfigured && (
+          <button
+            onClick={() => setLiveMode(v => !v)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-smooth ${
+              liveMode
+                ? 'bg-danger/15 text-danger border-danger/30'
+                : 'bg-secondary text-muted-foreground border-border hover:text-foreground'
+            }`}
+          >
+            {liveMode ? <Radio className="w-3 h-3 animate-pulse" /> : <Zap className="w-3 h-3" />}
+            {liveMode ? 'Live ON' : 'Live OFF'}
+          </button>
+        )}
       </div>
 
-      {/* Banner when no API key */}
+      {/* No API key banner */}
       {!isConfigured && (
-        <div className="flex items-start gap-2 p-3 rounded-lg bg-info/10 border border-info/20">
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-info/10 border border-info/20 mb-3 shrink-0">
           <Info className="w-4 h-4 text-info shrink-0 mt-0.5" />
-          <p className="text-xs text-info">Add Gemini API key in Settings for real AI-guided repair.</p>
+          <p className="text-xs text-info">Add Gemini API key in Settings for real AI-guided repair with live camera analysis.</p>
         </div>
       )}
 
-      {!hasIssue ? (
-        <div className="card-surface p-8 flex flex-col items-center gap-4 text-center">
-          <div className="w-14 h-14 rounded-full bg-secondary flex items-center justify-center">
-            <Camera className="w-7 h-7 text-muted-foreground" />
-          </div>
-          <p className="font-medium">No active issue to guide</p>
-          <p className="text-sm text-muted-foreground">Simulate a fault on the Dashboard first.</p>
-        </div>
-      ) : (
-        <>
-          <div className="card-surface p-3">
-            <p className="text-sm"><span className="text-muted-foreground">Issue: </span>{brain2Result.issueSummary}</p>
-          </div>
-
-          {!cameraActive ? (
+      {!cameraActive ? (
+        /* ── Pre-camera state ── */
+        <div className="flex-1 flex flex-col items-center justify-center gap-4">
+          <div className="card-surface p-8 flex flex-col items-center gap-4 text-center w-full">
+            <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+              <Camera className="w-8 h-8 text-primary" />
+            </div>
+            <div>
+              <p className="font-semibold text-base">AI Vision Ready</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                {hasIssue
+                  ? `Active issue: ${brain2Result.issueSummary}`
+                  : 'Point your camera at any actuator for AI analysis'}
+              </p>
+            </div>
+            {cameraError && (
+              <p className="text-xs text-danger bg-danger/10 border border-danger/20 rounded-lg px-3 py-2 w-full text-left">
+                {cameraError}
+              </p>
+            )}
             <button
               onClick={startCamera}
-              className="w-full card-surface p-6 flex flex-col items-center gap-3 hover:border-primary/40 transition-smooth"
+              className="px-6 py-3 rounded-xl bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-smooth flex items-center gap-2"
             >
-              <Camera className="w-8 h-8 text-primary" />
-              <span className="font-medium">Start Camera</span>
+              <Camera className="w-4 h-4" />
+              Start Camera
             </button>
-          ) : (
-            <div className="space-y-3">
-              <div className="rounded-xl overflow-hidden aspect-[4/3] bg-secondary relative">
-                <video ref={videoRef} className="w-full h-full object-cover" autoPlay playsInline muted />
-                {/* Hidden canvas for frame capture */}
-                <canvas ref={canvasRef} className="hidden" />
+          </div>
+        </div>
+      ) : (
+        /* ── Active camera + chat ── */
+        <div className="flex-1 flex flex-col gap-3 min-h-0">
 
-                {/* Send to AI button overlay */}
-                {isConfigured && (
-                  <button
-                    onClick={sendToAI}
-                    disabled={isSending}
-                    className="absolute bottom-3 right-3 px-3 py-1.5 rounded-full text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-smooth flex items-center gap-1.5 disabled:opacity-50"
-                  >
-                    {isSending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Camera className="w-3 h-3" />}
-                    Send to AI
-                  </button>
+          {/* Camera feed */}
+          <div className="relative rounded-xl overflow-hidden bg-black shrink-0" style={{ aspectRatio: '16/9' }}>
+            <video
+              ref={videoRef}
+              className="w-full h-full object-cover"
+              autoPlay
+              playsInline
+              muted
+            />
+            <canvas ref={canvasRef} className="hidden" />
+
+            {/* Live badge */}
+            {liveMode && (
+              <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-danger text-white text-xs font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                LIVE
+              </div>
+            )}
+
+            {/* Controls overlay */}
+            <div className="absolute bottom-3 right-3 flex gap-2">
+              {isConfigured && (
+                <button
+                  onClick={runLiveAnalysis}
+                  disabled={isSending}
+                  className="px-3 py-1.5 rounded-full text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-smooth flex items-center gap-1.5 disabled:opacity-50 shadow-lg"
+                >
+                  {isSending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Camera className="w-3 h-3" />}
+                  Analyze
+                </button>
+              )}
+              <button
+                onClick={handleStopCamera}
+                className="p-1.5 rounded-full bg-black/60 text-white hover:bg-black/80 transition-smooth"
+              >
+                <CameraOff className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Chat messages */}
+          <div className="flex-1 card-surface p-3 overflow-y-auto space-y-3 min-h-0">
+            {messages.length === 0 && isSending && (
+              <div className="flex gap-2 items-center text-muted-foreground">
+                <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                <span className="text-sm">Analyzing camera feed…</span>
+              </div>
+            )}
+            {messages.map((msg, i) => (
+              <div key={i} className="animate-fade-in">
+                {msg.sender === 'user' ? (
+                  <div className="flex justify-end">
+                    <div className="bg-primary/15 text-sm px-3 py-2 rounded-xl max-w-[80%]">{msg.text}</div>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <div className="w-6 h-6 rounded-full bg-primary/15 flex items-center justify-center shrink-0 mt-0.5">
+                      <MessageSquare className="w-3 h-3 text-primary" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm leading-relaxed">{msg.text}</p>
+                      {msg.hasFrame && (
+                        <span className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1">
+                          <Camera className="w-2.5 h-2.5" /> analyzed live frame
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
-
-              {/* Chat */}
-              <div className="card-surface p-3 max-h-64 overflow-y-auto space-y-3">
-                {messages.slice(0, visibleCount).map((msg, i) => (
-                  <div key={i} className="animate-fade-in">
-                    {msg.sender === 'user' ? (
-                      <div className="flex justify-end">
-                        <div className="bg-primary/15 text-sm px-3 py-1.5 rounded-lg max-w-[80%]">{msg.text}</div>
-                      </div>
-                    ) : (
-                      <div className="flex gap-2">
-                        <MessageSquare className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                        <p className="text-sm">{msg.text}</p>
-                      </div>
-                    )}
-                    {msg.buttons && msg.sender === 'ai' && i === visibleCount - 1 && !isConfigured && (
-                      <div className="flex gap-2 mt-2 ml-6 flex-wrap">
-                        {msg.buttons.map(btn => (
-                          <button
-                            key={btn.action}
-                            onClick={() => handleResponse(btn.action)}
-                            className="px-3 py-1.5 rounded-full text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-smooth"
-                          >
-                            {btn.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-                <div ref={chatEndRef} />
-              </div>
-
-              {/* Text input for AI questions */}
-              {isConfigured && (
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={textInput}
-                    onChange={e => setTextInput(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && sendTextQuestion()}
-                    placeholder="Ask about what you see..."
-                    className="flex-1 bg-secondary border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                  <button
-                    onClick={sendTextQuestion}
-                    disabled={!textInput.trim() || isSending}
-                    className="p-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-smooth disabled:opacity-50"
-                  >
-                    {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                  </button>
+            ))}
+            {isSending && messages.length > 0 && (
+              <div className="flex gap-2 items-center">
+                <div className="w-6 h-6 rounded-full bg-primary/15 flex items-center justify-center shrink-0">
+                  <Loader2 className="w-3 h-3 text-primary animate-spin" />
                 </div>
-              )}
-            </div>
-          )}
-        </>
+                <span className="text-sm text-muted-foreground">Analyzing…</span>
+              </div>
+            )}
+            <div ref={chatEndRef} />
+          </div>
+
+          {/* Input */}
+          <div className="flex gap-2 shrink-0">
+            <input
+              type="text"
+              value={textInput}
+              onChange={e => setTextInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && sendTextQuestion()}
+              placeholder={isConfigured ? 'Ask about what you see…' : 'Add API key to chat with AI…'}
+              disabled={!isConfigured}
+              className="flex-1 bg-secondary border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+            />
+            <button
+              onClick={sendTextQuestion}
+              disabled={!textInput.trim() || isSending || !isConfigured}
+              className="p-2.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition-smooth disabled:opacity-50"
+            >
+              {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
