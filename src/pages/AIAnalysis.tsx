@@ -1,6 +1,7 @@
 import { useActuator } from '@/context/ActuatorContext';
 import { useGemini } from '@/context/GeminiContext';
-import { Bot, CheckCircle, XCircle, AlertTriangle, Clock, Zap, Shield, Brain, Info, AlertCircle } from 'lucide-react';
+import { FACTORY_THRESHOLDS } from '@/lib/brain';
+import { Bot, CheckCircle, XCircle, AlertTriangle, Clock, Zap, Shield, Brain, Info, AlertCircle, HelpCircle, RefreshCw } from 'lucide-react';
 
 function ThinkingAnimation() {
   return (
@@ -35,13 +36,34 @@ function UrgencyBadge({ urgency, label }: { urgency: string; label: string }) {
 }
 
 export default function AIAnalysis({ onNavigateVision }: { onNavigateVision: () => void }) {
-  const { flags, brain2Result, isAnalyzing, hasAnalyzed, usingRealAI, geminiError } = useActuator();
+  const { flags, brain2Result, isAnalyzing, hasAnalyzed, usingRealAI, geminiError, dynamicThresholds, recalibrationLog, resetThresholds } = useActuator();
   const { isConfigured } = useGemini();
   const noFlags = flags.length === 0 && !hasAnalyzed;
 
+  const isRecalibrated = Object.keys(dynamicThresholds).some(
+    k => dynamicThresholds[k as keyof typeof dynamicThresholds] !== FACTORY_THRESHOLDS[k as keyof typeof FACTORY_THRESHOLDS]
+  );
+
   return (
     <div className="px-4 pt-4 pb-24 space-y-4 max-w-2xl mx-auto animate-fade-in">
-      <h1 className="text-lg font-semibold">AI Analysis</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-semibold">AI Analysis</h1>
+        {recalibrationLog.length > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-info flex items-center gap-1">
+              <RefreshCw className="w-3 h-3" /> {recalibrationLog.filter(r => !r.blocked).length} recalibrations
+            </span>
+            {isRecalibrated && (
+              <button
+                onClick={resetThresholds}
+                className="text-[10px] text-muted-foreground hover:text-foreground underline"
+              >
+                reset to factory
+              </button>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Banner when no API key */}
       {!isConfigured && (
@@ -66,7 +88,7 @@ export default function AIAnalysis({ onNavigateVision }: { onNavigateVision: () 
       {usingRealAI && hasAnalyzed && (
         <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-healthy/10 border border-healthy/20 w-fit">
           <span className="w-1.5 h-1.5 rounded-full bg-healthy" />
-          <span className="text-[10px] text-healthy font-medium">Powered by Gemini</span>
+          <span className="text-[10px] text-healthy font-medium">Powered by Gemini 2.5 Flash</span>
         </div>
       )}
 
@@ -87,30 +109,43 @@ export default function AIAnalysis({ onNavigateVision }: { onNavigateVision: () 
 
       {brain2Result && !isAnalyzing && (
         <div className="space-y-3 animate-fade-in">
-          {/* Verdict */}
+
+          {/* TL;DR — the only thing a technician needs to read */}
           <div className={`card-surface p-4 ${
             brain2Result.isRealIssue ? 'border-danger/40 bg-danger/5' : 'border-warning/40 bg-warning/5'
           }`}>
-            <div className="flex items-center gap-2">
-              {brain2Result.isRealIssue ? (
-                <AlertTriangle className="w-5 h-5 text-danger shrink-0" />
-              ) : (
-                <Shield className="w-5 h-5 text-warning shrink-0" />
-              )}
-              <div>
-                <p className="font-semibold text-sm">
-                  {brain2Result.isRealIssue ? '🔴 ' : '🟡 '}{brain2Result.verdict}
-                </p>
-                <p className="text-xs text-muted-foreground">{brain2Result.confidence}% confidence</p>
-              </div>
+            <p className="text-base font-bold leading-snug">{brain2Result.tldr}</p>
+            <div className="flex items-center gap-3 mt-2 flex-wrap">
+              <span className="text-xs text-muted-foreground">{brain2Result.confidence}% confidence</span>
+              <UrgencyBadge urgency={brain2Result.urgency} label={brain2Result.urgencyLabel} />
             </div>
           </div>
 
-          {/* Root Cause */}
+          {/* Needs more info banner */}
+          {brain2Result.needsMoreInfo && brain2Result.missingInfo.length > 0 && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-info/10 border border-info/20">
+              <HelpCircle className="w-4 h-4 text-info shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs text-info font-medium">More data would improve this verdict</p>
+                <ul className="mt-1 space-y-0.5">
+                  {brain2Result.missingInfo.map((item, i) => (
+                    <li key={i} className="text-[11px] text-info/80">• {item}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+
+          {/* Root Cause + Reasoning (collapsible detail) */}
           {brain2Result.rootCause && (
             <div className="card-surface p-4 space-y-3">
-              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Root Cause</h3>
-              <p className="font-semibold">{brain2Result.rootCause}</p>
+              <div className="flex items-center gap-2">
+                {brain2Result.isRealIssue
+                  ? <AlertTriangle className="w-4 h-4 text-danger shrink-0" />
+                  : <Shield className="w-4 h-4 text-warning shrink-0" />}
+                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Root Cause</h3>
+              </div>
+              <p className="font-semibold text-sm">{brain2Result.rootCause}</p>
               <div className="space-y-1.5">
                 {brain2Result.reasoning.map((r, i) => (
                   <div key={i} className="flex items-start gap-2 text-sm">
@@ -138,11 +173,8 @@ export default function AIAnalysis({ onNavigateVision }: { onNavigateVision: () 
               ))}
             </div>
             <div className="flex items-center gap-2 flex-wrap pt-1">
-              <UrgencyBadge urgency={brain2Result.urgency} label={brain2Result.urgencyLabel} />
               {brain2Result.isRealIssue && (
-                <button
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-smooth"
-                >
+                <button className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-smooth">
                   <Zap className="w-3 h-3" /> Try Auto-Fix
                 </button>
               )}

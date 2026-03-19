@@ -25,6 +25,11 @@ export interface Brain2Result {
   isRealIssue: boolean;
   confidence: number;
   verdict: string;
+  // Concise diagnostics
+  tldr: string;                  // ≤12 words — the only thing a technician needs to read
+  needsMoreInfo: boolean;        // true when confidence < 75% or specific data would help
+  missingInfo: string[];         // what additional data would improve the verdict
+  // Detailed breakdown
   rootCause: string;
   reasoning: string[];
   reasoningIcons: ('check' | 'x')[];
@@ -35,12 +40,17 @@ export interface Brain2Result {
   issueSummary: string;
 }
 
-export const THRESHOLDS = {
+// Factory thresholds — derived from ML training on healthy data (ml/thresholds.json)
+// These are the immutable originals. Dynamic thresholds can override them per-actuator.
+export const FACTORY_THRESHOLDS = {
   torque: 1.32,
   power: 0.205,
   temperature: 40.8,
   positionGap: 59.8,
 };
+
+// THRESHOLDS is the live value — starts equal to factory, can be updated by recalibration
+export const THRESHOLDS = { ...FACTORY_THRESHOLDS };
 
 export const HEALTHY_DEFAULTS: SensorData = {
   torque: 0.35,
@@ -56,21 +66,25 @@ export const CONTEXT_DEFAULTS: ContextData = {
   occupancy: 'low',
 };
 
-export function runBrain1(sensors: SensorData): ThresholdFlag[] {
+// Accept optional dynamic thresholds — defaults to module-level THRESHOLDS
+export function runBrain1(
+  sensors: SensorData,
+  thresholds: typeof FACTORY_THRESHOLDS = THRESHOLDS
+): ThresholdFlag[] {
   const flags: ThresholdFlag[] = [];
   const absTorque = Math.abs(sensors.torque);
-  if (absTorque > THRESHOLDS.torque) {
-    flags.push({ signal: 'torque', value: absTorque, threshold: THRESHOLDS.torque, label: `Torque ${absTorque.toFixed(2)} Nmm exceeds safe limit of ${THRESHOLDS.torque} Nmm` });
+  if (absTorque > thresholds.torque) {
+    flags.push({ signal: 'torque', value: absTorque, threshold: thresholds.torque, label: `Torque ${absTorque.toFixed(2)} Nmm exceeds safe limit of ${thresholds.torque} Nmm` });
   }
-  if (sensors.power > THRESHOLDS.power) {
-    flags.push({ signal: 'power', value: sensors.power, threshold: THRESHOLDS.power, label: `Power ${sensors.power.toFixed(3)} W exceeds safe limit of ${THRESHOLDS.power} W` });
+  if (sensors.power > thresholds.power) {
+    flags.push({ signal: 'power', value: sensors.power, threshold: thresholds.power, label: `Power ${sensors.power.toFixed(3)} W exceeds safe limit of ${thresholds.power} W` });
   }
-  if (sensors.temperature > THRESHOLDS.temperature) {
-    flags.push({ signal: 'temperature', value: sensors.temperature, threshold: THRESHOLDS.temperature, label: `Temperature ${sensors.temperature.toFixed(1)}°C exceeds safe limit of ${THRESHOLDS.temperature}°C` });
+  if (sensors.temperature > thresholds.temperature) {
+    flags.push({ signal: 'temperature', value: sensors.temperature, threshold: thresholds.temperature, label: `Temperature ${sensors.temperature.toFixed(1)}°C exceeds safe limit of ${thresholds.temperature}°C` });
   }
   const gap = Math.abs(sensors.setpointPosition - sensors.feedbackPosition);
-  if (gap > THRESHOLDS.positionGap) {
-    flags.push({ signal: 'positionGap', value: gap, threshold: THRESHOLDS.positionGap, label: `Position gap ${gap.toFixed(1)}% exceeds safe limit of ${THRESHOLDS.positionGap}%` });
+  if (gap > thresholds.positionGap) {
+    flags.push({ signal: 'positionGap', value: gap, threshold: thresholds.positionGap, label: `Position gap ${gap.toFixed(1)}% exceeds safe limit of ${thresholds.positionGap}%` });
   }
   return flags;
 }
@@ -86,6 +100,8 @@ export function runBrain2(sensors: SensorData, context: ContextData, flags: Thre
     return {
       isRealIssue: true, confidence: 87,
       verdict: 'Real Issue Confirmed',
+      tldr: '🔴 Valve obstruction — inspect and run sweep cycle',
+      needsMoreInfo: false, missingInfo: [],
       rootCause: 'Partial valve obstruction',
       reasoning: [
         'Torque significantly above normal range',
@@ -108,6 +124,8 @@ export function runBrain2(sensors: SensorData, context: ContextData, flags: Thre
     return {
       isRealIssue: false, confidence: 91,
       verdict: 'False Positive — Expected Behavior',
+      tldr: '🟡 High occupancy load — no action needed',
+      needsMoreInfo: false, missingInfo: [],
       rootCause: 'High demand — expected behavior',
       reasoning: [
         'Torque is elevated but room is heavily occupied (high CO2)',
@@ -127,6 +145,9 @@ export function runBrain2(sensors: SensorData, context: ContextData, flags: Thre
     return {
       isRealIssue: true, confidence: 78,
       verdict: 'Real Issue Confirmed',
+      tldr: '🔴 Motor losing efficiency — schedule maintenance soon',
+      needsMoreInfo: true,
+      missingInfo: ['Power consumption trend over last 7 days', 'Total motor run-hours'],
       rootCause: 'Early motor winding degradation',
       reasoning: [
         'Power consumption elevated while torque output remains normal',
@@ -150,6 +171,9 @@ export function runBrain2(sensors: SensorData, context: ContextData, flags: Thre
       return {
         isRealIssue: false, confidence: 74,
         verdict: 'False Positive — Expected Behavior',
+        tldr: '🟡 Ambient heat causing temp rise — monitor ventilation',
+        needsMoreInfo: true,
+        missingInfo: ['Ambient temperature at actuator location', 'Duration of elevated temperature'],
         rootCause: 'Elevated temperature due to ambient conditions',
         reasoning: [
           'Outdoor temperature is above 35°C',
@@ -166,6 +190,8 @@ export function runBrain2(sensors: SensorData, context: ContextData, flags: Thre
     return {
       isRealIssue: true, confidence: 83,
       verdict: 'Real Issue Confirmed',
+      tldr: '🔴 Overheating without cause — inspect now',
+      needsMoreInfo: false, missingInfo: [],
       rootCause: 'Actuator overheating — possible excessive cycling or internal friction',
       reasoning: [
         'Temperature well above safe operating range',
@@ -189,6 +215,8 @@ export function runBrain2(sensors: SensorData, context: ContextData, flags: Thre
     return {
       isRealIssue: true, confidence: 92,
       verdict: 'Real Issue Confirmed',
+      tldr: '🔴 Actuator stuck — not reaching setpoint',
+      needsMoreInfo: false, missingInfo: [],
       rootCause: 'Actuator not reaching setpoint — possible mechanical binding or control signal issue',
       reasoning: [
         'Large gap between setpoint and feedback position',
@@ -207,10 +235,11 @@ export function runBrain2(sensors: SensorData, context: ContextData, flags: Thre
     };
   }
 
-  // Fallback — everything normal
   return {
     isRealIssue: false, confidence: 100,
     verdict: 'All Systems Normal',
+    tldr: '🟢 All clear — no action needed',
+    needsMoreInfo: false, missingInfo: [],
     rootCause: '',
     reasoning: ['All readings within normal parameters'],
     reasoningIcons: ['check'],
