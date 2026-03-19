@@ -1,0 +1,9 @@
+{
+  "torque_abs_max": 0.438690185546875,
+  "torque_abs_mean": 0.3531494140625,
+  "power_max": 0.041015625,
+  "power_mean": 0.020609375,
+  "temp_max": 25.8,
+  "temp_mean": 25.800000000000008,
+  "position_gap_p95": 39.89133214950531
+}

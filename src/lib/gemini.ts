@@ -59,7 +59,7 @@ export async function callGeminiBrain2(
         }],
         generationConfig: {
           temperature: 0.3,
-          maxOutputTokens: 1024,
+          maxOutputTokens: 4096,
           responseMimeType: 'application/json',
         }
       })
