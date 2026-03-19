@@ -6,7 +6,7 @@ import {
 } from '@/components/ui/dialog';
 
 export default function SettingsModal() {
-  const { apiKey, status, setApiKey, testConnection } = useGemini();
+  const { apiKey, status, connectionError, setApiKey, testConnection } = useGemini();
   const [showKey, setShowKey] = useState(false);
   const [localKey, setLocalKey] = useState(apiKey);
 
@@ -81,6 +81,12 @@ export default function SettingsModal() {
               <span className={`text-xs ${color}`}>{label}</span>
             </div>
           </div>
+
+          {connectionError && status === 'invalid' && (
+            <p className="text-[10px] text-danger bg-danger/10 border border-danger/20 rounded-lg px-2.5 py-1.5">
+              {connectionError}
+            </p>
+          )}
 
           <p className="text-[10px] text-muted-foreground">
             Get your API key from{' '}

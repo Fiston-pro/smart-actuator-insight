@@ -1,6 +1,6 @@
 import { useActuator } from '@/context/ActuatorContext';
 import { useGemini } from '@/context/GeminiContext';
-import { Bot, CheckCircle, XCircle, AlertTriangle, Clock, Zap, Shield, Brain, Info } from 'lucide-react';
+import { Bot, CheckCircle, XCircle, AlertTriangle, Clock, Zap, Shield, Brain, Info, AlertCircle } from 'lucide-react';
 
 function ThinkingAnimation() {
   return (
@@ -35,12 +35,12 @@ function UrgencyBadge({ urgency, label }: { urgency: string; label: string }) {
 }
 
 export default function AIAnalysis({ onNavigateVision }: { onNavigateVision: () => void }) {
-  const { flags, brain2Result, isAnalyzing, hasAnalyzed, usingRealAI } = useActuator();
+  const { flags, brain2Result, isAnalyzing, hasAnalyzed, usingRealAI, geminiError } = useActuator();
   const { isConfigured } = useGemini();
   const noFlags = flags.length === 0 && !hasAnalyzed;
 
   return (
-    <div className="px-4 pt-4 pb-24 space-y-4 max-w-lg mx-auto animate-fade-in">
+    <div className="px-4 pt-4 pb-24 space-y-4 max-w-2xl mx-auto animate-fade-in">
       <h1 className="text-lg font-semibold">AI Analysis</h1>
 
       {/* Banner when no API key */}
@@ -48,6 +48,17 @@ export default function AIAnalysis({ onNavigateVision }: { onNavigateVision: () 
         <div className="flex items-start gap-2 p-3 rounded-lg bg-info/10 border border-info/20">
           <Info className="w-4 h-4 text-info shrink-0 mt-0.5" />
           <p className="text-xs text-info">Using simulated AI responses. Add your Gemini API key in Settings for real analysis.</p>
+        </div>
+      )}
+
+      {/* Gemini error banner */}
+      {geminiError && (
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-danger/10 border border-danger/20">
+          <AlertCircle className="w-4 h-4 text-danger shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs text-danger font-medium">Gemini API error — using fallback AI</p>
+            <p className="text-[10px] text-danger/80 mt-0.5">{geminiError}</p>
+          </div>
         </div>
       )}
 

@@ -39,6 +39,7 @@ interface ActuatorState {
   brain2ContextNote: string;
   pipelineLog: PipelineLogEntry[];
   usingRealAI: boolean;
+  geminiError: string | null;
 }
 
 interface ActuatorContextType extends ActuatorState {
@@ -61,6 +62,7 @@ export function ActuatorProvider({ children }: { children: ReactNode }) {
     brain2ContextNote: '',
     pipelineLog: [],
     usingRealAI: false,
+    geminiError: null,
   });
 
   const timeoutsRef = useRef<number[]>([]);
@@ -112,6 +114,7 @@ export function ActuatorProvider({ children }: { children: ReactNode }) {
       hasAnalyzed: false,
       brain2ContextNote: '',
       usingRealAI: useRealAI,
+      geminiError: null,
     }));
 
     // Stage 2: Brain 1 processing
@@ -174,8 +177,10 @@ export function ActuatorProvider({ children }: { children: ReactNode }) {
                   confidence: result.confidence,
                 });
               })
-              .catch(() => {
-                // Fall back to hardcoded
+              .catch((err: Error) => {
+                // Fall back to hardcoded, but surface the error
+                const errMsg = err?.message || 'Gemini API call failed';
+                setState(prev => ({ ...prev, geminiError: errMsg }));
                 const result = runBrain2(sensors, context, flags);
                 const note = getBrain2ContextNote(sensors, context, result);
                 const stage: PipelineStage = result.isRealIssue ? 'brain2-real-issue' : 'brain2-false-positive';

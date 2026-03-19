@@ -44,7 +44,7 @@ export async function callGeminiBrain2(
   const flagReasons = flags.map(f => f.label);
 
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -60,26 +60,34 @@ export async function callGeminiBrain2(
         generationConfig: {
           temperature: 0.3,
           maxOutputTokens: 1024,
+          responseMimeType: 'application/json',
         }
       })
     }
   );
 
-  if (!response.ok) {
-    throw new Error(`Gemini API error: ${response.status}`);
-  }
-
   const data = await response.json();
+
+  if (!response.ok) {
+    const msg = data?.error?.message || `HTTP ${response.status}`;
+    throw new Error(msg);
+  }
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-  // Extract JSON from response (may be wrapped in markdown code blocks)
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error('No JSON found in Gemini response');
-
-  const parsed = JSON.parse(jsonMatch[0]);
+  // Try direct parse first (when responseMimeType is application/json)
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error(`No JSON found in Gemini response: ${text.slice(0, 200)}`);
+    parsed = JSON.parse(jsonMatch[0]);
+  }
 
   // Map to Brain2Result
-  const isRealIssue = parsed.verdict === 'real_issue';
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const p = parsed as any;
+  const isRealIssue = p.verdict === 'real_issue';
   const urgencyMap: Record<string, string> = {
     none: '', low: 'Monitor over next week', medium: 'Fix within 48 hours',
     high: 'Immediate attention',
@@ -87,16 +95,16 @@ export async function callGeminiBrain2(
 
   return {
     isRealIssue,
-    confidence: parsed.confidence || 80,
+    confidence: p.confidence || 80,
     verdict: isRealIssue ? 'Real Issue Confirmed' : 'False Positive — Expected Behavior',
-    rootCause: parsed.root_cause || '',
-    reasoning: parsed.reasoning || [],
-    reasoningIcons: (parsed.reasoning || []).map(() => 'check' as const),
-    actions: parsed.action_steps || [],
-    urgency: parsed.urgency || 'none',
-    urgencyLabel: urgencyMap[parsed.urgency] || '',
-    needsPhysicalInspection: isRealIssue && (parsed.urgency === 'high' || parsed.urgency === 'medium'),
-    issueSummary: parsed.root_cause || '',
+    rootCause: p.root_cause || '',
+    reasoning: p.reasoning || [],
+    reasoningIcons: (p.reasoning || []).map(() => 'check' as const),
+    actions: p.action_steps || [],
+    urgency: p.urgency || 'none',
+    urgencyLabel: urgencyMap[p.urgency] || '',
+    needsPhysicalInspection: isRealIssue && (p.urgency === 'high' || p.urgency === 'medium'),
+    issueSummary: p.root_cause || '',
   };
 }
 
@@ -107,7 +115,7 @@ export async function callGeminiVision(
   previousMessages: string[]
 ): Promise<string> {
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -147,7 +155,7 @@ export async function callGeminiVisionText(
   currentIssue: string
 ): Promise<string> {
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -179,10 +187,10 @@ export async function callGeminiVisionText(
   return data.candidates?.[0]?.content?.parts?.[0]?.text || 'Unable to answer.';
 }
 
-export async function testGeminiConnection(apiKey: string): Promise<boolean> {
+export async function testGeminiConnection(apiKey: string): Promise<{ ok: boolean; error?: string }> {
   try {
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -192,8 +200,11 @@ export async function testGeminiConnection(apiKey: string): Promise<boolean> {
         })
       }
     );
-    return response.ok;
-  } catch {
-    return false;
+    if (response.ok) return { ok: true };
+    const data = await response.json().catch(() => ({}));
+    const msg = data?.error?.message || `HTTP ${response.status}`;
+    return { ok: false, error: msg };
+  } catch (e) {
+    return { ok: false, error: 'Network error — check your connection' };
   }
 }

@@ -110,18 +110,18 @@ export default function PipelineTracker({ stage, anomalyScore, brain2ContextNote
   const nodes = getNodeConfigs(stage, anomalyScore, brain2ContextNote);
 
   return (
-    <div className="card-surface p-3 overflow-x-auto">
-      <div className="flex items-start min-w-[540px]">
+    <div className="card-surface p-3">
+      <div className="flex items-start w-full">
         {nodes.map((node, i) => (
-          <div key={i} className="flex items-start flex-1">
+          <div key={i} className="flex items-start flex-1 min-w-0">
             {/* Node */}
-            <div className={`flex flex-col items-center text-center flex-shrink-0 transition-smooth ${node.dim ? 'opacity-40' : 'opacity-100'}`} style={{ width: 100 }}>
+            <div className={`flex flex-col items-center text-center flex-shrink-0 transition-smooth ${node.dim ? 'opacity-40' : 'opacity-100'}`} style={{ width: 80 }}>
               <div className={`w-9 h-9 rounded-full flex items-center justify-center ${node.color.split(' ')[0]}/15 border border-current/20 transition-smooth ${node.pulse ? 'animate-pulse-glow' : ''}`}>
                 <span className={node.color.split(' ').slice(1).join(' ')}>{node.icon}</span>
               </div>
               <span className="text-[10px] font-medium mt-1.5 leading-tight">{node.label}</span>
               {node.sublabel && (
-                <span className="text-[9px] text-muted-foreground mt-0.5 leading-tight whitespace-pre-line max-w-[110px]">{node.sublabel}</span>
+                <span className="text-[9px] text-muted-foreground mt-0.5 leading-tight whitespace-pre-line max-w-[78px]">{node.sublabel}</span>
               )}
             </div>
             {/* Connecting line */}

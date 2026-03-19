@@ -33,7 +33,7 @@ function AppContent() {
   return (
     <div className="min-h-screen bg-background">
       {/* Top bar with settings */}
-      <div className="flex items-center justify-between px-4 pt-3 pb-1 max-w-lg mx-auto">
+      <div className="flex items-center justify-between px-4 pt-3 pb-1 max-w-2xl mx-auto">
         <h1 className="text-sm font-semibold text-muted-foreground">ActuatorIQ</h1>
         <SettingsModal />
       </div>

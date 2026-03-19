@@ -36,7 +36,7 @@ export default function Dashboard({ onOpenSimulator }: { onOpenSimulator: () => 
   const posGap = Math.abs(sensors.setpointPosition - sensors.feedbackPosition);
 
   return (
-    <div className="px-4 pt-4 pb-24 space-y-4 max-w-lg mx-auto animate-fade-in">
+    <div className="px-4 pt-4 pb-24 space-y-4 max-w-2xl mx-auto animate-fade-in">
       {/* Status Card */}
       <div className={`card-surface p-5 transition-smooth ${
         hasAnomaly ? 'border-danger/40 bg-danger/5' : 'border-healthy/30 bg-healthy/5'
@@ -71,7 +71,7 @@ export default function Dashboard({ onOpenSimulator }: { onOpenSimulator: () => 
       {/* Live Readings */}
       <div>
         <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Live Readings</h3>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <MetricTile label="Torque" value={Math.abs(sensors.torque)} unit=" Nmm" threshold={THRESHOLDS.torque} maxDisplay={3} />
           <MetricTile label="Power" value={sensors.power} unit=" W" threshold={THRESHOLDS.power} maxDisplay={0.5} />
           <MetricTile label="Temperature" value={sensors.temperature} unit="°C" threshold={THRESHOLDS.temperature} maxDisplay={60} />
